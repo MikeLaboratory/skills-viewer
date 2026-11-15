@@ -239,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let parts = message.components(separatedBy: "\n\n")
         alert.messageText = parts[0]
         alert.informativeText = parts.dropFirst().joined(separator: "\n\n")
-        alert.addButton(withTitle: "Allinea")
+        alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Annulla")
         alert.beginSheetModal(for: window) { completionHandler($0 == .alertFirstButtonReturn) }
     }
@@ -266,12 +266,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard Self.checking, webView.url?.host == "127.0.0.1" else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            // conta le skill e prova una richiesta di Allinea su una skill inesistente:
-            // deve passare i controlli di sicurezza e rispondere "Skill non trovata", senza scrivere niente
+            // conta le skill e prova una richiesta di copia su una skill inesistente:
+            // deve passare i controlli di sicurezza (token compreso) e rispondere "Skill non trovata", senza scrivere niente
             let js = """
-                const r = await fetch('/api/align', {method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'X-Skills-Viewer': '1'},
-                    body: JSON.stringify({folder: '__verifica__', from: 'claude'})});
+                const token = document.querySelector('meta[name="skills-viewer-token"]').content;
+                const r = await fetch('/api/copy', {method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-Skills-Viewer-Token': token},
+                    body: JSON.stringify({items: [{folder: '__verifica__', from: 'claude'}]})});
                 const out = await r.json();
                 return JSON.stringify({sources: document.querySelectorAll('.side').length,
                     rows: document.querySelectorAll('.item, .card, .nav-item').length,
@@ -341,7 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         submenu("Archivio", [
             item("Aggiorna", #selector(reloadSkills(_:)), "r"),
             item("Cerca", #selector(focusSearch(_:)), "f"),
-            item("Allinea tutto…", #selector(alignAll(_:)), "a", [.command, .shift]),
+            item("Copia le skill mancanti…", #selector(alignAll(_:)), "a", [.command, .shift]),
             .separator(),
             item("Mostra skill di Claude nel Finder", #selector(revealClaude(_:))),
             item("Mostra skill di Codex nel Finder", #selector(revealCodex(_:))),

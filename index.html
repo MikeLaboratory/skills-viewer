@@ -2,6 +2,8 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
+<!-- token anti-CSRF: il server lo inserisce qui a ogni avvio -->
+<meta name="skills-viewer-token" content="__SKILLS_VIEWER_TOKEN__">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skills Viewer</title>
 <style>
@@ -122,6 +124,7 @@
   .cmd .copy { margin-top: 3px; }
   .cmd-note { font-size: 12.5px; color: var(--muted); grid-column: 1 / -1; }
   .more-cmds > summary { cursor: pointer; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .copy-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
   .copy { font-size: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 2px 8px; cursor: pointer; color: var(--muted); }
   .copy:hover { color: var(--text); border-color: var(--faint); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -243,7 +246,7 @@
   <footer>
     <span id="updated"></span>
     <button class="link" id="reload">Aggiorna</button>
-    <!-- usato dal menu dell'app (Archivio → Allinea tutto) -->
+    <!-- usato dal menu dell'app (Archivio → Copia le skill mancanti) -->
     <button id="alignAll" hidden></button>
   </footer>
 </main>
@@ -266,6 +269,7 @@ const ICON_TODO = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" s
 const CHEV = '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
 
 let data = null, busy = false, query = "";
+const TOKEN = document.querySelector('meta[name="skills-viewer-token"]').content;
 // lingua delle descrizioni (ricordata solo in questo browser)
 let lang = "it";
 try { lang = localStorage.getItem("skillsViewerLang") || "it"; } catch {}
@@ -324,7 +328,7 @@ function render() {
     document.getElementById("hero").hidden = false;
     renderHero(); renderTodo(); renderAligned(); renderExtras();
   }
-  document.getElementById("updated").textContent = "Versione " + data.version + " · Controllato alle " + new Date(data.generatedAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+  document.getElementById("updated").textContent = "Versione " + data.version + " · Non elimina mai niente · Controllato alle " + new Date(data.generatedAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 }
 
 function renderHero() {
@@ -390,7 +394,7 @@ function todoActions(r) {
     return `<div class="choice">
       <b>${dot(id)} Versione di ${esc(sideName(id, r))} ${isNewer ? '<span class="badge newer">più recente</span>' : ""}</b>
       <span class="meta">Modificata il ${fmtDate(p.newest)} · ${files(p.count)}</span>
-      <button class="btn" data-align="${esc(r.folder)}" data-from="${id}" ${dis}>Usa questa</button></div>`;
+      <button class="btn" data-align="${esc(r.folder)}" data-from="${id}" ${dis}>Usa questa: copia in ${id === "claude" ? "Codex" : "Claude Code"}</button></div>`;
   };
   const diffs = r.comparisons.filter((c) => c.diffFiles.length);
   const changes = diffs.length ? `<details class="changes"><summary>Cosa cambia</summary>${diffs.map((c) =>
@@ -492,7 +496,7 @@ function rowDetail(r) {
   const ok = r.status === "identica";
   return detailHead(r.folder, ok ? `<span class="check">✓ Uguale in Claude Code e Codex</span>` : `<span class="badge ${r.status === "diversa" ? "diff" : "missing"}">${STATUS_BADGE[r.status]}</span>`) +
     (ok ? "" : `<div class="action-box"><div class="block-title">Da sistemare</div>${todoActions(r)}</div>`) +
-    `<div class="block"><div class="block-title">Cosa fa</div><p class="pane-desc">${esc(T(r.description))}</p></div>${skillBody(r)}`;
+    `<div class="block"><div class="block-title">Cosa fa</div><p class="pane-desc">${esc(T(r.description))}</p></div>${skillBody(r)}${copyButtons(r)}`;
 }
 
 function extraDetail(x) {
@@ -532,7 +536,7 @@ function skillBody(r) {
 function alignedItem(r) {
   return `<details class="item" data-key="r:${esc(r.folder)}"${openKeys.has("r:" + r.folder) ? " open" : ""}><summary>${CHEV}${emo(r.folder)}<div class="main"><div class="name">${esc(r.folder)} ${launchChip(r.info, "/" + r.folder)}</div>${summaryHtml(r.folder)}<div class="desc">${esc(T(r.description))}</div></div>
       <span class="check">✓ Uguale</span></summary>
-    <div class="more">${skillBody(r)}</div></details>`;
+    <div class="more">${skillBody(r)}${copyButtons(r)}</div></details>`;
 }
 
 function select(key, focus) {
@@ -675,7 +679,7 @@ function ask(title, bodyHtml, okLabel) {
 async function post(url, body) {
   const r = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Skills-Viewer": "1" },
+    headers: { "Content-Type": "application/json", "X-Skills-Viewer-Token": TOKEN },
     body: JSON.stringify(body || {}),
   });
   const out = await r.json().catch(() => ({}));
@@ -697,33 +701,73 @@ async function run(fn, success) {
   }
 }
 
+// Dove finisce una copia (stessa regola del server): dall'altra parte, ogni copia già presente,
+// oppure la cartella principale se non ce n'è nessuna
+function copyTargets(r, from) {
+  const ids = from === "claude" ? CODEX_IDS.filter((id) => r.per[id]) : ["claude"];
+  if (!ids.length) ids.push("codex");
+  const dir = (id) => data.sources.find((s) => s.id === id).dir;
+  return ids.filter((id) => !r.per[id] || r.per[id].hash !== r.per[from].hash)
+    .map((id) => ({ id, path: tilde(dir(id) + "/" + r.folder), existing: r.per[id] }));
+}
+
+function diffList(r, id) {
+  const c = r.comparisons.find((x) => x.id === id);
+  if (!c || !c.diffFiles.length) return "";
+  return `<ul>${c.diffFiles.slice(0, 12).map((d) => `<li><code>${esc(d.file)}</code> — ${d.what === "contenuto diverso" ? "contenuto diverso" : d.what === "manca in Claude" ? "c’è solo nella versione che verrà sostituita" : "c’è solo nella versione che copi"}</li>`).join("")}${c.diffFiles.length > 12 ? `<li>…e altri ${c.diffFiles.length - 12}</li>` : ""}</ul>`;
+}
+
+// Copia una skill: prima mostra sempre cosa viene copiato e dove
 async function alignOne(folder, from) {
   const r = data.rows.find((x) => x.folder === folder);
-  const fromName = sideName(from, r);
+  const targets = copyTargets(r, from);
+  if (!targets.length) return toast(`<b>${esc(folder)}</b> è già uguale: niente da copiare.`);
   const toName = from === "claude" ? "Codex" : "Claude Code";
-  if (r.status === "diversa" || r.codexCopiesDiffer) {
-    const ok = await ask(`Usare la versione di ${fromName}?`,
-      `<p>La skill <b>${esc(folder)}</b> in ${esc(toName)} diventa uguale a quella di ${esc(fromName)}.</p>
-       <p>La versione che sostituisco non viene cancellata: la sposto in <code>~/.skills-viewer-backup</code>.</p>`,
-      "Usa questa versione");
-    if (!ok) return;
-  }
-  run(() => post("/api/align", { folder, from }), (out) => out.done.length
-    ? `Fatto: <b>${esc(folder)}</b> ora è uguale in Claude Code e Codex.${out.backupDir ? " La versione sostituita è nel backup." : ""}`
-    : `<b>${esc(folder)}</b> era già allineata.`);
+  const replace = targets.some((t) => t.existing);
+  const body = `<p><b>Da:</b> <code>${esc(tilde(r.per[from].path))}</code> (${files(r.per[from].count)})</p>` +
+    targets.map((t) => `<p><b>A:</b> <code>${esc(t.path)}</code></p>` +
+      (t.existing ? `<p>Lì c’è già una versione diversa. File che cambiano:</p>${diffList(r, from === "claude" ? t.id : from)}` : "")).join("") +
+    (replace ? `<p>Prima di copiare sposto la versione attuale in <code>~/.skills-viewer-backup/</code>. <b>Non viene cancellato niente.</b></p>`
+             : `<p>Aggiungo solo file nuovi: non sostituisco e non cancello niente.</p>`);
+  const ok = await ask(replace ? `Sostituire “${folder}” in ${toName}?` : `Copiare “${folder}” in ${toName}?`, body,
+    replace ? `Sposta nel backup e copia` : `Copia in ${toName}`);
+  if (!ok) return;
+  run(() => post("/api/copy", { items: [{ folder, from }] }), (out) => out.done.length
+    ? `Fatto: <b>${esc(folder)}</b> ora è uguale in Claude Code e Codex.${out.backupDir ? " La versione sostituita è nel backup." : ""}${skippedNote(out)}`
+    : `<b>${esc(folder)}</b> era già uguale.`);
 }
+
+const skippedNote = (out) => {
+  const n = out.done.reduce((a, d) => a + d.skipped.length, 0);
+  return n ? ` Saltati ${n} collegamenti che puntano fuori dalle cartelle delle skill.` : "";
+};
 
 async function copyAll() {
   const rows = autoCopyable();
   if (!rows.length) return;
+  const items = rows.map((r) => ({ folder: r.folder, from: r.status === "solo-claude" ? "claude" : (r.per.codex ? "codex" : "agents") }));
   const ok = await ask(rows.length === 1 ? "Copiare la skill mancante?" : `Copiare le ${rows.length} skill mancanti?`,
-    `<ul>${rows.map((r) => `<li><b>${esc(r.folder)}</b> → ${r.status === "solo-claude" ? "Codex" : "Claude Code"}</li>`).join("")}</ul>
-     <p>Aggiungo solo quello che manca: non sostituisco niente.</p>`,
+    `<ul>${items.map((it) => { const r = data.rows.find((x) => x.folder === it.folder); return `<li><b>${esc(it.folder)}</b> → <code>${esc(copyTargets(r, it.from)[0].path)}</code></li>`; }).join("")}</ul>
+     <p>Aggiungo solo quello che manca: non sostituisco e non cancello niente.</p>`,
     rows.length === 1 ? "Copia" : `Copia ${rows.length} skill`);
   if (!ok) return;
-  run(() => post("/api/align-all"), (out) => out.done.length
-    ? `Fatto: ${out.done.length === 1 ? "1 skill copiata" : out.done.length + " skill copiate"}.`
+  run(() => post("/api/copy", { items }), (out) => out.done.length
+    ? `Fatto: ${out.done.length === 1 ? "1 skill copiata" : out.done.length + " skill copiate"}.${skippedNote(out)}`
     : "Non c’era niente da copiare.");
+}
+
+// Pulsanti "Copia in Codex" / "Copia in Claude Code", presenti in ogni skill
+function copyButtons(r) {
+  const dis = busy ? "disabled" : "";
+  if (r.status === "identica") return `<div class="block"><div class="block-title">Copia</div><div class="muted small">Niente da copiare: è già uguale in Claude Code e Codex.</div></div>`;
+  const btns = [];
+  if (r.per.claude) btns.push(`<button class="btn" data-align="${esc(r.folder)}" data-from="claude" ${dis}>Copia in Codex</button>`);
+  const cx = CODEX_IDS.filter((id) => r.per[id]);
+  for (const id of r.codexCopiesDiffer ? cx : cx.slice(0, 1)) {
+    btns.push(`<button class="btn" data-align="${esc(r.folder)}" data-from="${id}" ${dis}>Copia in Claude Code${r.codexCopiesDiffer ? ` (da ${esc(sideName(id, r))})` : ""}</button>`);
+  }
+  return `<div class="block"><div class="block-title">Copia</div><div class="copy-row">${btns.join("")}</div>
+    <div class="muted small">Prima di copiare ti mostro cosa cambia. Non elimina mai niente.</div></div>`;
 }
 
 document.addEventListener("click", (e) => {

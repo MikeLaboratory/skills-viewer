@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Skills Viewer — confronta le skill di Claude Code e Codex.
 // La lettura e il confronto non toccano nessun file.
-// Scrive SOLO quando premi "Allinea" (copia una skill nella cartella dell'altro programma)
+// Scrive SOLO quando confermi una copia (una skill nella cartella dell'altro programma)
 // e quando salva le traduzioni in italiano in ~/.skills-viewer/traduzioni.json.
-// Non cancella mai niente: una copia sostituita viene spostata in ~/.skills-viewer-backup/.
+// NON ELIMINA MAI NIENTE: nel codice non ci sono cancellazioni. Una versione sostituita
+// viene spostata (non cancellata) in ~/.skills-viewer-backup/<data>/.
 
 const http = require("http");
 const fs = require("fs");
@@ -372,11 +373,15 @@ async function buildReport() {
     // Le due copie Codex (~/.codex e ~/.agents) sono diverse tra loro?
     const codexCopiesDiffer = codexIds.length > 1 && new Set(codexIds.map((id) => per[id].hash)).size > 1;
 
-    for (const id in per) if (per[id]) delete per[id].files;
+    const perOut = Object.fromEntries(Object.entries(per).map(([id, p]) => {
+      if (!p) return [id, null];
+      const { files: _files, ...rest } = p; // l'elenco dei file serve solo qui sopra
+      return [id, rest];
+    }));
     return {
       folder: n, name: any.name, description: any.description, info: any.info,
       claudeOnly: any.claudeOnly, hasOpenaiYaml: any.hasOpenaiYaml,
-      status, comparisons, codexCopiesDiffer, per,
+      status, comparisons, codexCopiesDiffer, per: perOut,
     };
   });
   const extras = [...plugins, ...projects].sort((a, b) => a.origin.localeCompare(b.origin) || a.folder.localeCompare(b.folder));
@@ -390,51 +395,115 @@ async function buildReport() {
   };
 }
 
-// ---------- Allinea (le uniche operazioni che scrivono) ----------
+// ---------- Copia delle skill (l'unica operazione che scrive nelle cartelle delle skill) ----------
+// Regole: solo copia, mai cancellazioni. Se la destinazione esiste già, la vecchia versione
+// viene SPOSTATA nel backup prima di copiare. Percorsi validati e collegamenti controllati.
 
 const srcById = (id) => SOURCES.find((s) => s.id === id);
 const stamp = () => new Date().toISOString().replace(/[:.]/g, "-");
+const COPY_SKIP = new Set([".git", "node_modules", ".DS_Store"]);
 
-// Sposta una copia esistente nel backup invece di cancellarla
-async function backupAway(full, sourceId, folder, when) {
-  const dest = path.join(BACKUP_DIR, when, sourceId, folder);
+// Nome di cartella accettabile: un solo pezzo, niente "..", niente "/" o "\", niente nascosti
+function validFolderName(name) {
+  return typeof name === "string" && name.length > 0 && name.length <= 200 &&
+    !/[\/\\\0]/.test(name) && name !== "." && name !== ".." && !name.startsWith(".");
+}
+
+// `child` sta dentro `root`? (dopo aver risolto i percorsi)
+function isInside(root, child) {
+  const rel = path.relative(root, child);
+  return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+// Le cartelle consentite, con i percorsi reali (se ~/.claude/skills è un collegamento, vale la destinazione)
+async function allowedRoots() {
+  const roots = [];
+  for (const s of SOURCES) {
+    roots.push(path.resolve(s.dir));
+    try { roots.push(await fs.promises.realpath(s.dir)); } catch {}
+  }
+  return [...new Set(roots)];
+}
+const insideAllowed = (roots, p) => roots.some((r) => isInside(r, p));
+
+// Sposta (non cancella) qualcosa nel backup
+async function moveToBackup(full, when, sourceId, name) {
+  const dest = path.join(BACKUP_DIR, when, sourceId, name);
   await fs.promises.mkdir(path.dirname(dest), { recursive: true });
   await fs.promises.rename(full, dest);
   return dest;
 }
 
-// Copia la cartella di una skill (i collegamenti vengono copiati come file veri)
-async function copySkill(from, to) {
-  await fs.promises.mkdir(path.dirname(to), { recursive: true });
-  await fs.promises.cp(from, to, {
-    recursive: true, dereference: true, errorOnExist: true, force: false,
-    filter: (p) => path.basename(p) !== ".DS_Store",
-  });
+// Copia file per file. Non sovrascrive mai (COPYFILE_EXCL), salta .git e node_modules,
+// segue un collegamento solo se punta dentro le cartelle consentite.
+async function copyTree(src, dest, roots, skipped, seen = new Set()) {
+  const real = await fs.promises.realpath(src);
+  if (seen.has(real)) return; // evita cicli
+  seen.add(real);
+  await fs.promises.mkdir(dest); // fallisce se esiste già: non scriviamo mai sopra
+  for (const e of await fs.promises.readdir(src, { withFileTypes: true })) {
+    if (COPY_SKIP.has(e.name)) continue;
+    const from = path.join(src, e.name), to = path.join(dest, e.name);
+    let target = from;
+    if (e.isSymbolicLink()) {
+      try { target = await fs.promises.realpath(from); } catch { skipped.push(path.relative(src, from) + " (collegamento rotto)"); continue; }
+      if (!insideAllowed(roots, target)) { skipped.push(e.name + " (collegamento fuori dalle cartelle delle skill)"); continue; }
+    }
+    const st = await fs.promises.stat(target);
+    if (st.isDirectory()) await copyTree(target, to, roots, skipped, seen);
+    else if (st.isFile()) await fs.promises.copyFile(target, to, fs.constants.COPYFILE_EXCL);
+  }
 }
 
-// Porta la versione di `fromId` dall'altra parte. Restituisce cosa ha fatto.
-async function alignOne(row, fromId, when) {
-  const from = row.per[fromId];
-  if (!from) throw new Error(`"${row.folder}" non esiste in ${srcById(fromId).label}`);
-  const fromSide = srcById(fromId).side;
-  // Destinazioni: dall'altra parte, ogni copia esistente; se non ce n'è nessuna, la cartella principale
-  const targetIds = fromSide === "claude" ? CODEX_IDS.filter((id) => row.per[id]) : ["claude"];
+// Controlla una richiesta di copia e calcola cosa succederà, senza scrivere niente
+async function planCopy(report, item, roots) {
+  if (!item || !validFolderName(item.folder)) throw Object.assign(new Error("Nome di skill non valido"), { code: 400 });
+  const from = srcById(item.from);
+  if (!from) throw Object.assign(new Error("Origine non valida"), { code: 400 });
+  const row = report.rows.find((r) => r.folder === item.folder);
+  if (!row || !row.per[from.id]) throw Object.assign(new Error("Skill non trovata: " + item.folder), { code: 404 });
+
+  // origine: dentro la sua cartella, e se è un collegamento deve puntare dentro le cartelle consentite
+  const srcPath = path.join(path.resolve(from.dir), item.folder);
+  if (!isInside(path.resolve(from.dir), srcPath)) throw Object.assign(new Error("Percorso non consentito"), { code: 400 });
+  const srcReal = await fs.promises.realpath(srcPath);
+  if (!insideAllowed(roots, srcReal)) {
+    throw Object.assign(new Error(`"${item.folder}" è un collegamento a una cartella fuori da quelle delle skill: per sicurezza non la copio`), { code: 400 });
+  }
+
+  // destinazioni: dall'altra parte, ogni copia già presente; se non ce n'è nessuna, la cartella principale
+  const targetIds = from.side === "claude" ? CODEX_IDS.filter((id) => row.per[id]) : ["claude"];
   if (!targetIds.length) targetIds.push("codex");
-  const done = [];
+  const targets = [];
   for (const id of targetIds) {
     const existing = row.per[id];
-    if (existing && existing.hash === from.hash) continue; // già identica
-    const dest = path.join(srcById(id).dir, row.folder);
+    if (existing && existing.hash === row.per[from.id].hash) continue; // già identica
+    const root = path.resolve(srcById(id).dir);
+    const dest = path.join(root, item.folder);
+    if (!isInside(root, dest) || path.dirname(dest) !== root) throw Object.assign(new Error("Percorso non consentito"), { code: 400 });
+    targets.push({ id, root, dest, replace: !!existing });
+  }
+  return { row, from, srcPath, srcReal, targets };
+}
+
+async function runCopy(plan, roots, when) {
+  const done = [];
+  for (const t of plan.targets) {
+    await fs.promises.mkdir(t.root, { recursive: true });
+    let exists = false;
+    try { await fs.promises.lstat(t.dest); exists = true; } catch {}
     let backup = null;
-    if (existing) backup = await backupAway(existing.path, id, row.folder, when);
+    if (exists) backup = await moveToBackup(t.dest, when, t.id, plan.row.folder);
+    const skipped = [];
     try {
-      await copySkill(from.path, dest);
+      await copyTree(plan.srcReal, t.dest, roots, skipped);
     } catch (err) {
-      // Copia fallita: rimette a posto la copia di prima
-      if (backup) { try { await fs.promises.rename(backup, dest); } catch {} }
+      // copia non riuscita: la copia a metà va anch'essa nel backup, e torna quella di prima
+      try { await fs.promises.lstat(t.dest); await moveToBackup(t.dest, when, t.id, plan.row.folder + "-copia-incompleta"); } catch {}
+      if (backup) { try { await fs.promises.rename(backup, t.dest); } catch {} }
       throw err;
     }
-    done.push({ folder: row.folder, from: fromId, to: id, dest, backup });
+    done.push({ folder: plan.row.folder, from: plan.from.id, to: t.id, dest: t.dest, backup, skipped });
   }
   return done;
 }
@@ -486,7 +555,9 @@ function runCodex(codex, prompt) {
   return new Promise(async (resolve, reject) => {
     const work = path.join(os.tmpdir(), "skills-viewer-codex");
     await fs.promises.mkdir(work, { recursive: true });
-    const outFile = path.join(work, `risposta-${process.pid}-${Date.now()}.txt`);
+    // un solo file, riscritto ogni volta (le traduzioni sono una alla volta): niente da cancellare
+    const outFile = path.join(work, "risposta.txt");
+    await fs.promises.writeFile(outFile, "");
     // le app non vedono il PATH del Terminale: aggiungiamo quello di Node e i percorsi comuni
     const env = { ...process.env, PATH: [path.dirname(process.execPath), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", process.env.PATH].filter(Boolean).join(":") };
     const child = require("child_process").spawn(codex, [
@@ -500,7 +571,7 @@ function runCodex(codex, prompt) {
     child.on("close", async (code) => {
       clearTimeout(timer);
       let text = "";
-      try { text = await fs.promises.readFile(outFile, "utf8"); await fs.promises.unlink(outFile); } catch {}
+      try { text = await fs.promises.readFile(outFile, "utf8"); } catch {}
       if (code !== 0 || !text) {
         const last = err.trim().split("\n").filter(Boolean).pop() || `codice di uscita ${code}`;
         return reject(new Error(/login|auth/i.test(err) ? "Codex non è collegato al tuo account: apri il Terminale e scrivi codex login" : last));
@@ -621,6 +692,19 @@ async function readJson(req) {
   return body ? JSON.parse(body) : {};
 }
 
+// Token anti-CSRF: generato a ogni avvio e scritto solo dentro la pagina di Skills Viewer.
+// Un'altra pagina web non lo conosce, quindi non può chiedere copie o traduzioni.
+const CSRF_TOKEN = crypto.randomBytes(32).toString("hex");
+
+function writeAllowed(req) {
+  const ip = req.socket.remoteAddress;
+  const local = ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+  const token = Buffer.from(String(req.headers["x-skills-viewer-token"] || ""));
+  const expected = Buffer.from(CSRF_TOKEN);
+  return local && ALLOWED_ORIGINS.has(req.headers.origin) &&
+    token.length === expected.length && crypto.timingSafeEqual(token, expected);
+}
+
 // Accetta solo richieste rivolte a questo computer (protezione dal DNS rebinding)
 // (si riempiono quando il server è partito e conosce la sua porta)
 const ALLOWED_HOSTS = new Set();
@@ -674,36 +758,31 @@ const server = http.createServer(async (req, res) => {
     }
     const { pathname } = new URL(req.url, "http://localhost");
 
-    // Solo dalla pagina di Skills Viewer: blocca le richieste inviate da altri siti
-    const fromPage = ALLOWED_ORIGINS.has(req.headers.origin) && req.headers["x-skills-viewer"] === "1";
-
+    // Le uniche due richieste che scrivono. Solo dalla pagina di Skills Viewer (Origin + token).
     if (req.method === "POST" && pathname === "/api/translate") {
-      if (!fromPage) return json(403, { error: "Richiesta non consentita" });
+      if (!writeAllowed(req)) return json(403, { error: "Richiesta non consentita" });
+      // scrive solo nel file delle traduzioni, mai nelle cartelle delle skill
       if (!translating) translating = translateMissing().finally(() => { translating = null; });
       return json(200, await translating);
     }
 
-    if (req.method === "POST" && (pathname === "/api/align" || pathname === "/api/align-all")) {
-      if (!fromPage) return json(403, { error: "Richiesta non consentita" });
+    if (req.method === "POST" && pathname === "/api/copy") {
+      if (!writeAllowed(req)) return json(403, { error: "Richiesta non consentita" });
       const body = await readJson(req);
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (!items.length || items.length > 500) return json(400, { error: "Nessuna skill da copiare" });
       const report = await buildReport();
+      const roots = await allowedRoots();
+      // prima controlla tutto: se una sola richiesta non va bene, non si copia niente
+      const plans = [];
+      for (const item of items) {
+        try { plans.push(await planCopy(report, item, roots)); }
+        catch (e) { return json(e.code || 400, { error: e.message }); }
+      }
       const when = stamp();
       const done = [];
-      if (pathname === "/api/align") {
-        const row = report.rows.find((r) => r.folder === body.folder);
-        if (!row) return json(404, { error: "Skill non trovata" });
-        if (!SOURCES.some((s) => s.id === body.from)) return json(400, { error: "Origine non valida" });
-        done.push(...await alignOne(row, body.from, when));
-      } else {
-        // Allinea tutto: copia solo le skill che mancano da una parte, non sostituisce niente
-        for (const row of report.rows) {
-          if (row.status === "solo-claude") done.push(...await alignOne(row, "claude", when));
-          else if (row.status === "solo-codex" && !row.codexCopiesDiffer) {
-            done.push(...await alignOne(row, row.per.codex ? "codex" : "agents", when));
-          }
-        }
-      }
-      console.log(`Allineate ${done.length} ${done.length === 1 ? "copia" : "copie"}` + done.map((d) => `\n  ${d.folder}: ${d.from} → ${d.to}${d.backup ? " (vecchia copia in backup)" : ""}`).join(""));
+      for (const plan of plans) done.push(...await runCopy(plan, roots, when));
+      console.log(`Copiate ${done.length} ${done.length === 1 ? "skill" : "skill"}` + done.map((d) => `\n  ${d.folder}: ${d.from} → ${d.to}${d.backup ? " (vecchia versione spostata nel backup)" : ""}`).join(""));
       return json(200, { done, backupDir: done.some((d) => d.backup) ? path.join(BACKUP_DIR, when) : null });
     }
 
@@ -729,7 +808,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(data));
     }
     if (pathname === "/" || pathname === "/index.html") {
-      const html = await fs.promises.readFile(path.join(__dirname, "index.html"));
+      const html = (await fs.promises.readFile(path.join(__dirname, "index.html"), "utf8")).replace("__SKILLS_VIEWER_TOKEN__", CSRF_TOKEN);
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       return res.end(html);
     }
@@ -752,7 +831,8 @@ server.listen(PORT, "127.0.0.1", () => {
     return;
   }
   const url = `http://localhost:${port}`;
-  console.log(`Skills Viewer attivo su ${url} (modifica i file solo quando premi "Allinea")`);
+  console.log(`Skills Viewer ${VERSION} attivo su ${url}`);
+  console.log("Non elimina mai niente: copia le skill solo quando lo confermi, e sposta nel backup le versioni sostituite.");
   console.log("Per fermarlo: Ctrl+C");
   if (!process.env.NO_OPEN) exec(`open ${url}`);
 });

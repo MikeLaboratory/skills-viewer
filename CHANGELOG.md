@@ -5,6 +5,27 @@ Tutte le modifiche importanti a Skills Viewer sono elencate qui.
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/)
 e il progetto usa il [Versionamento Semantico](https://semver.org/lang/it/).
 
+## [1.1.0] - 2026-11-15
+
+### Aggiunto
+- Pulsanti "Copia in Codex" e "Copia in Claude Code" in ogni skill.
+- Conferma prima di ogni copia, con cosa viene copiato e dove. Se la skill esiste già dall'altra parte, la conferma mostra i file diversi e avvisa che la versione attuale verrà spostata nel backup.
+- Token anti-CSRF generato a ogni avvio: solo la pagina di Skills Viewer può chiedere copie o traduzioni.
+- Controllo di Node.js all'avvio di `Avvia Skills Viewer.command`, con un messaggio in italiano e il link a nodejs.org se manca o è troppo vecchio.
+- README per chi riceve il progetto: cosa fa, requisiti, come avviarlo, avviso di Gatekeeper, garanzia che non elimina niente.
+
+### Modificato
+- La copia ora è fatta file per file e non sovrascrive mai un file esistente.
+- Le richieste di scrittura sulle skill passano da un unico endpoint (`POST /api/copy`), al posto dei due precedenti.
+- La scritta in fondo alla finestra ora dice "Non elimina mai niente".
+- Il menu dell'app "Allinea tutto…" si chiama "Copia le skill mancanti…".
+
+### Sicurezza
+- Nessuna cancellazione nel codice: una versione sostituita viene sempre spostata in `~/.skills-viewer-backup/<data e ora>/`. Anche il file temporaneo delle traduzioni viene riscritto invece che cancellato.
+- Nomi delle skill validati: niente `..`, `/` o cartelle nascoste, quindi niente path traversal.
+- Le copie restano dentro le cartelle delle skill: saltano `.git` e `node_modules` e non seguono collegamenti che portano fuori da quelle cartelle.
+- Le richieste di scrittura sono accettate solo da `127.0.0.1`, con Host, Origin e token corretti. Se anche una sola skill nella richiesta non è valida, non viene copiato niente.
+
 ## [1.0.0] - 2026-11-15
 
 Prima versione con numero di versione.
@@ -20,4 +41,5 @@ Prima versione con numero di versione.
 - Protezioni del server: risponde solo su `127.0.0.1`, controlla Host e Origin.
 - Versione mostrata in fondo alla finestra.
 
+[1.1.0]: #110---2026-11-15
 [1.0.0]: #100---2026-11-15
