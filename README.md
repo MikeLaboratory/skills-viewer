@@ -12,6 +12,7 @@ Vedi a colpo d'occhio cosa manca e cosa è diverso, e sistemalo con un clic, sen
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-1a7a4a?style=flat-square&logo=nodedotjs&logoColor=white)
 ![Dipendenze](https://img.shields.io/badge/dipendenze-zero-1a7a4a?style=flat-square)
 ![Non elimina mai](https://img.shields.io/badge/non%20elimina-mai%20niente-b4532a?style=flat-square)
+![Licenza MIT](https://img.shields.io/badge/licenza-MIT-1d1d1b?style=flat-square)
 
 <br>
 
@@ -151,3 +152,7 @@ Tutto il resto viene solo letto.
 - **`Avvia Skills Viewer.command`**: avvio nel browser, con il controllo di Node.js.
 
 </details>
+
+## Licenza
+
+Skills Viewer è distribuito con licenza **[MIT](LICENSE)**: puoi usarlo, copiarlo, modificarlo e ridistribuirlo liberamente, anche dentro altri progetti, purché lasci la nota di copyright e il testo della licenza. È fornito "così com'è", senza garanzie.

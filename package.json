@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "description": "Confronta e allinea le skill di Claude Code e Codex",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

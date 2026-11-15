@@ -7,6 +7,9 @@ e il progetto usa il [Versionamento Semantico](https://semver.org/lang/it/).
 
 ## [Non rilasciato]
 
+### Aggiunto
+- Licenza MIT (file `LICENSE`).
+
 ### Documentazione
 - Nuova pagina di presentazione del repository su GitHub: icona, badge, screenshot (tema chiaro e scuro), cosa fa, garanzie di sicurezza, cosa scrive sul Mac.
 
