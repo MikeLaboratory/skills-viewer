@@ -1,0 +1,13 @@
+# dipendenze (il progetto non ne ha, ma per sicurezza)
+node_modules/
+
+# macOS
+.DS_Store
+
+# backup delle skill sostituite (di solito stanno in ~/.skills-viewer-backup, mai nel progetto)
+backup/
+.skills-viewer-backup/
+
+# file generati dalla compilazione dell'app per Mac (si rifanno con ./Scripts/build-app.sh)
+.build/
+Apps/

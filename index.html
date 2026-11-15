@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skills Viewer</title>
+<style>
+  :root {
+    --bg: #f5f5f2; --panel: #ffffff; --text: #1d1d1b; --muted: #66665f; --faint: #8d8d86; --line: #e3e2dd;
+    --ok: #1a7a4a; --ok-bg: #e5f3eb; --warn: #8f5300; --warn-bg: #fcefd8;
+    --err: #b42318; --err-bg: #fdecea;
+    --claude: #b4532a; --claude-bg: #f9ebe4; --codex: #2d5fa8; --codex-bg: #e7eef9;
+    --chip: #efeeea; --accent: #1d1d1b; --accent-text: #ffffff;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1b1a; --panel: #252524; --text: #ecebe7; --muted: #b0afa8; --faint: #8a8983; --line: #3a3a37;
+      --ok: #6fd3a0; --ok-bg: #1f3a2c; --warn: #f2bc6b; --warn-bg: #3d2f17;
+      --err: #ff9b8f; --err-bg: #3d1f1b;
+      --claude: #f0a27e; --claude-bg: #3e2a20; --codex: #8fb4ef; --codex-bg: #1f2c41;
+      --chip: #31312f; --accent: #ecebe7; --accent-text: #1b1b1a;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 1320px; margin: 0 auto; padding: 28px 24px 64px; }
+  button { font: inherit; color: inherit; }
+  code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .muted { color: var(--muted); }
+
+  /* testata */
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .brand { font-weight: 650; font-size: 15px; }
+  .tr-status { font-size: 13px; color: var(--muted); }
+  .tr-status:not(:empty)::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--muted); animation: spin .8s linear infinite; vertical-align: -1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .top-right { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .lang { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--panel); }
+  .lang button { border: 0; background: none; padding: 4px 11px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  .lang button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+  .sides { display: flex; gap: 8px; flex-wrap: wrap; }
+  .side { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+  .dot.claude { background: var(--claude); } .dot.codex { background: var(--codex); }
+
+  /* riepilogo */
+  .hero { margin: 18px 0 28px; padding: 22px 24px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  .hero .icon { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+  .hero.ok .icon { background: var(--ok-bg); color: var(--ok); }
+  .hero.todo .icon { background: var(--warn-bg); color: var(--warn); }
+  .hero.err .icon { background: var(--err-bg); color: var(--err); }
+  .hero .text { flex: 1; min-width: 220px; }
+  .hero h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .hero p { margin: 0; color: var(--muted); }
+
+  /* pulsanti */
+  .btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 14px; cursor: pointer; white-space: nowrap; }
+  .btn:hover:not(:disabled) { border-color: var(--faint); }
+  .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 550; }
+  .btn.primary:hover:not(:disabled) { opacity: .88; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn:focus-visible, .link:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--codex); outline-offset: 2px; }
+  .link { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
+
+  /* sezioni */
+  .section { margin-top: 30px; }
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  h2 { font-size: 17px; margin: 0; }
+  .count { color: var(--faint); font-weight: 500; }
+  .search { font: inherit; font-size: 14px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); width: 260px; max-width: 100%; }
+
+  /* schede "da sistemare" */
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+  .card-title { font-weight: 650; font-size: 16px; }
+  .desc { color: var(--muted); font-size: 13.5px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .problem { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; }
+  .badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .badge.missing { background: var(--warn-bg); color: var(--warn); }
+  .badge.diff { background: var(--warn-bg); color: var(--warn); }
+  .badge.newer { background: var(--ok-bg); color: var(--ok); }
+  .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+  .choice { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+  .choice b { display: flex; align-items: center; gap: 6px; }
+  .choice .meta { font-size: 13px; color: var(--muted); }
+  .choice .btn { margin-top: 8px; align-self: flex-start; }
+  .card-head .btn, .choice .btn { font-weight: 550; }
+  .changes { margin-top: 12px; font-size: 13.5px; }
+  .changes summary { cursor: pointer; color: var(--muted); }
+  .changes ul { margin: 6px 0 0; padding-left: 20px; }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+
+  /* elenco "allineate" */
+  .list { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+  .item { border-top: 1px solid var(--line); }
+  .item:first-child { border-top: 0; }
+  .item > summary { list-style: none; cursor: pointer; padding: 12px 16px; display: flex; gap: 12px; align-items: flex-start; }
+  .item > summary::-webkit-details-marker { display: none; }
+  .item > summary:hover { background: color-mix(in srgb, var(--chip) 55%, transparent); }
+  .item .chev { color: var(--faint); transition: transform .15s; margin-top: 2px; flex: none; }
+  .item[open] .chev { transform: rotate(90deg); }
+  .item .main { flex: 1; min-width: 0; }
+  .item .name { font-weight: 600; }
+  .item[open] .desc { -webkit-line-clamp: unset; display: block; }
+  .item .check { color: var(--ok); font-size: 13px; white-space: nowrap; flex: none; }
+  .item .more { padding: 0 16px 14px 42px; font-size: 13.5px; }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; }
+  .kv code { word-break: break-all; color: var(--muted); }
+  .block { margin-top: 14px; }
+  .block:first-child { margin-top: 4px; }
+  .block-title { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); margin-bottom: 6px; }
+  .bullets { margin: 0; padding-left: 18px; }
+  .bullets li { margin: 2px 0; }
+  .small { font-size: 12.5px; }
+  .how { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; margin-bottom: 10px; align-items: start; }
+  .how-who { display: inline-flex; align-items: center; gap: 6px; font-weight: 550; padding-top: 5px; }
+  .cmd { display: grid; grid-template-columns: minmax(0, auto) auto; justify-content: start; align-items: start; gap: 2px 8px; margin-bottom: 8px; }
+  .cmd code { background: var(--chip); padding: 4px 8px; border-radius: 6px; word-break: break-all; color: var(--text); }
+  .cmd .copy { margin-top: 3px; }
+  .cmd-note { font-size: 12.5px; color: var(--muted); grid-column: 1 / -1; }
+  .more-cmds > summary { cursor: pointer; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .copy { font-size: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 2px 8px; cursor: pointer; color: var(--muted); }
+  .copy:hover { color: var(--text); border-color: var(--faint); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12.5px; background: var(--chip); color: var(--muted); padding: 2px 8px; border-radius: 6px; }
+  .chip-cmd { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--chip); padding: 1px 6px; border-radius: 5px; margin-left: 6px; }
+  .hint { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--chip); font-size: 13px; color: var(--muted); }
+
+  .emoji { font-size: 20px; line-height: 1; flex: none; width: 26px; text-align: center; }
+  .emoji.big { font-size: 34px; width: auto; }
+  .summary { font-weight: 550; margin-top: 2px; }
+  .card-title .emoji { margin-right: 4px; vertical-align: -2px; }
+  .item > summary .emoji { margin-top: 1px; }
+  .nav-item { display: flex !important; gap: 10px; align-items: flex-start; }
+  .nav-item .emoji { margin-top: 2px; }
+  .nav-text { min-width: 0; }
+  .pane-head { display: flex; gap: 14px; align-items: center; }
+  .pane-summary { font-size: 17px; font-weight: 550; margin: 14px 0 0; }
+  /* finestra larga: elenco + dettaglio, ognuno con il suo scorrimento */
+  body.wide { overflow: hidden; }
+  body.wide main { max-width: none; height: 100vh; padding: 0; display: flex; flex-direction: column; }
+  body.wide .top { padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
+  #wide { flex: 1; min-height: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr); }
+  #wide[hidden] { display: none; }
+  .sidebar { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  .side-head { padding: 14px 14px 10px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; flex: none; }
+  .side-head .search { width: 100%; }
+  .status { display: flex; gap: 10px; align-items: center; }
+  .status b { display: block; font-size: 15px; }
+  .status span { font-size: 13px; color: var(--muted); }
+  .status-icon { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+  .status-icon svg { width: 17px; height: 17px; }
+  .status.ok .status-icon { background: var(--ok-bg); color: var(--ok); }
+  .status.todo .status-icon { background: var(--warn-bg); color: var(--warn); }
+  .wide-btn { width: 100%; }
+  #navList { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 8px 16px; }
+  .nav-group-title { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); padding: 14px 8px 6px; }
+  .nav-note { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .nav-empty { padding: 6px 8px; font-size: 13px; color: var(--faint); }
+  #navList .nav-item { border: 0; border-radius: 8px; padding: 8px 10px; }
+  #navList .nav-item.on { background: var(--chip); box-shadow: none; }
+  .nav-item .badge { display: inline-block; margin: 3px 0 1px; }
+  .nav-item .desc { display: -webkit-box; }
+  .detail { min-height: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--panel); }
+  .detail-inner { max-width: 880px; padding: 28px 36px 64px; }
+  .action-box { margin-top: 18px; padding: 16px 18px; border-radius: 12px; background: var(--warn-bg); }
+  .action-box .block-title { color: var(--warn); }
+  .action-box .problem { margin-top: 0; }
+  .action-box .choice { background: var(--panel); }
+  .btn.action { margin-top: 12px; }
+  body.wide footer { margin: 0; padding: 7px 18px; border-top: 1px solid var(--line); flex: none; background: var(--panel); }
+  /* (vecchio) */
+
+  .nav-item { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); background: none; padding: 11px 14px; cursor: pointer; }
+  .nav-item:first-child { border-top: 0; }
+  .nav-item:hover { background: color-mix(in srgb, var(--chip) 55%, transparent); }
+  .nav-item.on { background: var(--chip); box-shadow: inset 3px 0 0 var(--text); }
+  .nav-item:focus-visible { outline: 2px solid var(--codex); outline-offset: -2px; }
+  .nav-item .name { display: block; font-weight: 600; }
+  .nav-item .desc { -webkit-line-clamp: 2; font-size: 13px; }
+  .pane .pane-desc { margin: 0; }
+
+  .pane-head h3 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+  .pane-desc { margin: 8px 0 4px; color: var(--muted); }
+  .pane .block:first-of-type { margin-top: 16px; }
+  .empty { padding: 28px; text-align: center; color: var(--muted); }
+  .extras-intro { font-size: 14px; color: var(--muted); margin: 0 0 10px; }
+  .tag { font-size: 12px; padding: 1px 7px; border-radius: 6px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+  footer { margin-top: 32px; color: var(--faint); font-size: 13px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+  /* avviso dopo un'azione */
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0; pointer-events: none;
+    background: var(--accent); color: var(--accent-text); padding: 12px 18px; border-radius: 12px; font-size: 14px; max-width: min(560px, calc(100vw - 32px));
+    box-shadow: 0 8px 30px rgba(0,0,0,.18); transition: opacity .2s, transform .2s; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+  .toast.err { background: var(--err); color: #fff; }
+
+  /* finestra di conferma */
+  dialog { border: 0; border-radius: 14px; padding: 22px 24px; max-width: 440px; width: calc(100vw - 32px); background: var(--panel); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog h3 { margin: 0 0 8px; font-size: 17px; }
+  dialog p { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
+  dialog ul { margin: 0 0 8px; padding-left: 20px; font-size: 14px; max-height: 200px; overflow: auto; }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+  @media (max-width: 640px) {
+    main { padding: 20px 16px 48px; }
+    .hero { padding: 18px; }
+    .search { width: 100%; }
+    .kv, .how { grid-template-columns: 1fr; }
+    .item .more { padding-left: 16px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div class="brand">Skills Viewer</div>
+    <div class="top-right"><span class="tr-status" id="trStatus" aria-live="polite"></span><div class="sides" id="sides"></div>
+      <div class="lang" role="group" aria-label="Lingua delle descrizioni"><button data-lang="it">Italiano</button><button data-lang="orig">Originale</button></div></div>
+  </div>
+
+  <div id="wide" hidden>
+    <aside class="sidebar">
+      <div class="side-head"><div id="sideStatus"></div>
+        <input type="search" class="search" id="search" placeholder="Cerca una skill" aria-label="Cerca una skill"></div>
+      <nav id="navList" aria-label="Skill"></nav>
+    </aside>
+    <section class="detail" id="detail" aria-live="polite"></section>
+  </div>
+
+  <section class="hero" id="hero" aria-live="polite">
+    <div class="text"><h1>Leggo le skill…</h1><p>Un attimo.</p></div>
+  </section>
+
+  <section class="section" id="todo" hidden></section>
+  <section class="section" id="aligned" hidden></section>
+  <section class="section" id="extras" hidden></section>
+
+  <footer>
+    <span id="updated"></span>
+    <button class="link" id="reload">Aggiorna</button>
+    <!-- usato dal menu dell'app (Archivio → Allinea tutto) -->
+    <button id="alignAll" hidden></button>
+  </footer>
+</main>
+
+<div class="toast" id="toast" role="status"></div>
+
+<dialog id="dialog">
+  <h3 id="dlgTitle"></h3>
+  <div id="dlgBody"></div>
+  <div class="actions">
+    <button class="btn" value="cancel" id="dlgCancel">Annulla</button>
+    <button class="btn primary" value="ok" id="dlgOk"></button>
+  </div>
+</dialog>
+
+<script>
+const CODEX_IDS = ["codex", "agents"];
+const ICON_OK = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const ICON_TODO = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 7v6"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>';
+const CHEV = '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+
+let data = null, busy = false, query = "";
+// lingua delle descrizioni (ricordata solo in questo browser)
+let lang = "it";
+try { lang = localStorage.getItem("skillsViewerLang") || "it"; } catch {}
+const T = (text) => lang === "it" && data && data.translations && data.translations[text] || text;
+let lastTranslateTry = null;
+// emoji e frase breve di una skill (generate da Codex; emoji di riserva se mancano)
+const card = (folder) => (data && data.cards && data.cards[folder]) || { emoji: "🧩", summary: null };
+const emo = (folder) => `<span class="emoji" aria-hidden="true">${esc(card(folder).emoji)}</span>`;
+const summaryHtml = (folder) => card(folder).summary ? `<div class="summary">${esc(card(folder).summary)}</div>` : "";
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtDate = (ms) => ms ? new Date(ms).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+const files = (n) => n === 1 ? "1 file" : `${n} file`;
+const skills = (n) => n === 1 ? "1 skill" : `${n} skill`;
+const tilde = (p) => data && data.home && p && p.startsWith(data.home) ? "~" + p.slice(data.home.length) : p;
+// Nomi mostrati: "Codex" per entrambe le cartelle Codex, a meno che servano tutte e due
+const sideName = (id, row) => id === "claude" ? "Claude Code"
+  : row && CODEX_IDS.filter((c) => row.per[c]).length > 1 ? (id === "agents" ? "Codex (~/.agents)" : "Codex (~/.codex)") : "Codex";
+const dot = (id) => `<span class="dot ${id === "claude" ? "claude" : "codex"}"></span>`;
+
+async function load() {
+  try {
+    const r = await fetch("/api/skills", { cache: "no-store" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    data = d;
+    // percorso della home, per mostrare ~/... invece del percorso intero
+    const claude = d.sources.find((s) => s.id === "claude");
+    data.home = claude.dir.replace(/\/\.claude\/skills$/, "");
+    render();
+    maybeTranslate();
+  } catch (e) {
+    document.getElementById("hero").className = "hero err";
+    document.getElementById("hero").innerHTML = `<div class="icon">${ICON_TODO}</div><div class="text"><h1>Non riesco a leggere le skill</h1><p>${esc(e.message)}. Riprova con Aggiorna.</p></div>`;
+  }
+}
+
+const missing = (r) => r.status === "solo-claude" || r.status === "solo-codex";
+const autoCopyable = () => data.rows.filter((r) => r.status === "solo-claude" || (r.status === "solo-codex" && !r.codexCopiesDiffer));
+const matches = (r) => !query || (r.folder + " " + (r.name || "") + " " + r.description + " " + T(r.description) + " " + (card(r.folder).summary || "")).toLowerCase().includes(query);
+
+function render() {
+  const src = (id) => data.sources.find((s) => s.id === id);
+  const codexCount = new Set(data.rows.filter((r) => CODEX_IDS.some((c) => r.per[c])).map((r) => r.folder)).size;
+  document.getElementById("sides").innerHTML =
+    `<span class="side" title="${esc(src("claude").dir)}">${dot("claude")} Claude Code · ${src("claude").present ? skills(src("claude").count) : "cartella assente"}</span>` +
+    `<span class="side" title="${esc(data.sources.filter((s) => s.side === "codex" || CODEX_IDS.includes(s.id)).filter((s) => s.present).map((s) => s.dir).join("\n") || src("codex").dir)}">${dot("codex")} Codex · ${skills(codexCount)}</span>`;
+
+  const wide = WIDE.matches;
+  document.body.classList.toggle("wide", wide);
+  document.getElementById("wide").hidden = !wide;
+  for (const id of ["hero", "todo", "aligned", "extras"]) if (wide) document.getElementById(id).hidden = true;
+  if (wide) { renderWide(); }
+  else {
+    openKeys = new Set([...document.querySelectorAll("details.item[open]")].map((d) => d.dataset.key));
+    document.getElementById("hero").hidden = false;
+    renderHero(); renderTodo(); renderAligned(); renderExtras();
+  }
+  document.getElementById("updated").textContent = "Versione " + data.version + " · Controllato alle " + new Date(data.generatedAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderHero() {
+  const hero = document.getElementById("hero");
+  const total = data.rows.length;
+  const todo = data.rows.filter((r) => r.status !== "identica");
+  if (!total) {
+    hero.className = "hero ok";
+    hero.innerHTML = `<div class="text"><h1>Ancora nessuna skill</h1><p>Aggiungi una skill in <code>~/.claude/skills</code> o <code>~/.codex/skills</code>, poi premi Aggiorna.</p></div>`;
+    return;
+  }
+  if (!todo.length) {
+    hero.className = "hero ok";
+    hero.innerHTML = `<div class="icon">${ICON_OK}</div><div class="text"><h1>Tutto allineato</h1><p>Claude Code e Codex hanno le stesse ${skills(total)}, identiche.</p></div>`;
+    return;
+  }
+  const nCopy = autoCopyable().length;
+  const nDiff = todo.filter((r) => r.status === "diversa").length;
+  const parts = [];
+  if (todo.filter(missing).length) parts.push(`${todo.filter(missing).length === 1 ? "1 manca" : todo.filter(missing).length + " mancano"} da una parte`);
+  if (nDiff) parts.push(`${nDiff === 1 ? "1 ha" : nDiff + " hanno"} contenuti diversi`);
+  hero.className = "hero todo";
+  hero.innerHTML = `<div class="icon">${ICON_TODO}</div>
+    <div class="text"><h1>${todo.length === 1 ? "1 skill da sistemare" : todo.length + " skill da sistemare"}</h1>
+    <p>${esc(parts.join(" e "))}. ${nCopy && nDiff ? "Le mancanti le copio io con un clic; per quelle diverse scegli tu quale versione tenere." : nCopy ? "Basta un clic per copiarle." : "Scegli quale versione tenere."}</p></div>
+    ${nCopy ? `<button class="btn primary" data-copy-all ${busy ? "disabled" : ""}>Copia ${nCopy === 1 ? "la skill mancante" : `le ${nCopy} skill mancanti`}</button>` : ""}`;
+}
+
+function renderTodo() {
+  const el = document.getElementById("todo");
+  const rows = data.rows.filter((r) => r.status !== "identica");
+  el.hidden = !rows.length;
+  if (!rows.length) return;
+  el.innerHTML = `<div class="section-head"><h2>Da sistemare <span class="count">${rows.length}</span></h2></div>` + rows.map(todoCard).join("");
+}
+
+function todoCard(r) {
+  const head = `<div class="card-title">${emo(r.folder)} ${esc(r.folder)}</div>${summaryHtml(r.folder)}<div class="desc">${esc(T(r.description))}</div>
+    <details class="changes"><summary>Cosa fa e come si usa</summary><div style="margin-top:6px">${infoHtml(r.info, launchFor(r))}</div></details>`;
+  return `<div class="card">${head}${todoActions(r)}</div>`;
+}
+
+const launchFor = (r) => ({ slash: r.per.claude ? "/" + r.folder : null, codex: CODEX_IDS.some((c) => r.per[c]) ? "$" + r.folder : null });
+
+// Il problema e i pulsanti per risolverlo
+function todoActions(r) {
+  const dis = busy ? "disabled" : "";
+  if (r.status === "solo-claude") {
+    return `<div class="problem"><span class="badge missing">Manca in Codex</span><span class="muted">C’è solo in Claude Code.</span></div>
+      <button class="btn action" data-align="${esc(r.folder)}" data-from="claude" ${dis}>Copia in Codex</button>`;
+  }
+  if (r.status === "solo-codex" && !r.codexCopiesDiffer) {
+    const from = r.per.codex ? "codex" : "agents";
+    return `<div class="problem"><span class="badge missing">Manca in Claude Code</span><span class="muted">C’è solo in Codex.</span></div>
+      <button class="btn action" data-align="${esc(r.folder)}" data-from="${from}" ${dis}>Copia in Claude Code</button>`;
+  }
+  // versioni diverse: una scelta per ogni copia
+  const ids = ["claude", ...CODEX_IDS].filter((id) => r.per[id]);
+  const newest = Math.max(...ids.map((id) => r.per[id].newest));
+  const choice = (id) => {
+    const p = r.per[id];
+    const isNewer = ids.length > 1 && p.newest === newest && ids.filter((x) => r.per[x].newest === newest).length === 1;
+    return `<div class="choice">
+      <b>${dot(id)} Versione di ${esc(sideName(id, r))} ${isNewer ? '<span class="badge newer">più recente</span>' : ""}</b>
+      <span class="meta">Modificata il ${fmtDate(p.newest)} · ${files(p.count)}</span>
+      <button class="btn" data-align="${esc(r.folder)}" data-from="${id}" ${dis}>Usa questa</button></div>`;
+  };
+  const diffs = r.comparisons.filter((c) => c.diffFiles.length);
+  const changes = diffs.length ? `<details class="changes"><summary>Cosa cambia</summary>${diffs.map((c) =>
+    `${diffs.length > 1 ? `<div style="margin-top:6px">Rispetto a ${esc(sideName(c.id, r))}:</div>` : ""}<ul>${c.diffFiles.slice(0, 30).map((d) =>
+      `<li><code>${esc(d.file)}</code> — ${d.what === "contenuto diverso" ? "contenuto diverso" : d.what === "manca in Claude" ? "c’è solo in " + esc(sideName(c.id, r)) : "c’è solo in Claude Code"}</li>`).join("")}${c.diffFiles.length > 30 ? `<li>…e altri ${c.diffFiles.length - 30}</li>` : ""}</ul>`).join("")}</details>` : "";
+  const why = r.status === "diversa" ? "È in tutti e due, ma il contenuto non è uguale." : "Manca in Claude Code, e le due copie di Codex non sono uguali.";
+  return `<div class="problem"><span class="badge diff">${r.status === "diversa" ? "Versioni diverse" : "Manca in Claude Code"}</span><span class="muted">${why} Quale versione vuoi tenere?</span></div>
+    <div class="choices">${ids.map(choice).join("")}</div>${changes}
+    <div class="note">L’altra versione non viene cancellata: la sposto nel backup.</div>`;
+}
+
+// Finestra larga: come Mail o Note. Elenco a sinistra e dettaglio a destra,
+// ognuno scorre per conto suo e la pagina resta ferma.
+const WIDE = window.matchMedia("(min-width: 980px)");
+let openKeys = new Set(); // skill aperte nell'elenco (finestra stretta)
+let selected = null; // "r:<cartella>" per le tue skill, "x:<numero>" per plugin e progetti
+
+function renderAligned() {
+  const el = document.getElementById("aligned");
+  const rows = data.rows.filter((r) => r.status === "identica");
+  el.hidden = !data.rows.length;
+  if (!data.rows.length) return;
+  const shown = rows.filter(matches);
+  const prevSearch = el.querySelector(".search");
+  const hadFocus = prevSearch && document.activeElement === prevSearch;
+  const empty = `<div class="empty">${rows.length ? `Nessuna skill allineata corrisponde a “${esc(query)}”.` : "Nessuna skill è ancora uguale nei due programmi."}</div>`;
+  el.innerHTML = `<div class="section-head"><h2>Già allineate <span class="count">${rows.length}</span></h2>
+      <input type="search" class="search" data-search placeholder="Cerca una skill" aria-label="Cerca una skill" value="${esc(query)}"></div>
+    <div class="list">${shown.length ? shown.map(alignedItem).join("") : empty}</div>`;
+  if (hadFocus) { const s = el.querySelector(".search"); s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
+}
+
+function heroCompact() {
+  const total = data.rows.length;
+  const todo = data.rows.filter((r) => r.status !== "identica");
+  if (!total) return `<div class="status ok"><b>Ancora nessuna skill</b><span>Aggiungine una in <code>~/.claude/skills</code> o <code>~/.codex/skills</code>.</span></div>`;
+  if (!todo.length) return `<div class="status ok"><span class="status-icon">${ICON_OK}</span><div><b>Tutto allineato</b><span>${total === 1 ? "1 skill uguale" : total + " skill uguali"} in Claude Code e Codex</span></div></div>`;
+  const nCopy = autoCopyable().length;
+  return `<div class="status todo"><span class="status-icon">${ICON_TODO}</span><div><b>${todo.length === 1 ? "1 skill da sistemare" : todo.length + " skill da sistemare"}</b>
+    <span>Clicca una skill qui sotto per sistemarla.</span></div></div>
+    ${nCopy ? `<button class="btn primary wide-btn" data-copy-all ${busy ? "disabled" : ""}>Copia ${nCopy === 1 ? "la skill mancante" : `le ${nCopy} skill mancanti`}</button>` : ""}`;
+}
+
+const STATUS_BADGE = { "solo-claude": "Manca in Codex", "solo-codex": "Manca in Claude Code", diversa: "Versioni diverse" };
+
+function wideEntries() {
+  const todo = data.rows.filter((r) => r.status !== "identica");
+  const ok = data.rows.filter((r) => r.status === "identica");
+  const extras = (data.extras || []).map((x, i) => ({ ...x, key: "x:" + i }));
+  const xMatch = (x) => !query || (x.folder + " " + x.description + " " + T(x.description) + " " + (card(x.folder).summary || "")).toLowerCase().includes(query);
+  return [
+    { title: "Da sistemare", items: todo.filter(matches).map((r) => ({ key: "r:" + r.folder, row: r })), total: todo.length },
+    { title: "Già allineate", items: ok.filter(matches).map((r) => ({ key: "r:" + r.folder, row: r })), total: ok.length },
+    { title: "Plugin e progetti", items: extras.filter(xMatch).map((x) => ({ key: x.key, extra: x })), total: extras.length, note: "Solo da consultare" },
+  ].filter((g) => g.total);
+}
+
+function renderWide() {
+  document.getElementById("sideStatus").innerHTML = heroCompact();
+  const search = document.getElementById("search");
+  if (search.value !== query && document.activeElement !== search) search.value = query;
+  const groups = wideEntries();
+  const all = groups.flatMap((g) => g.items);
+  if (!all.some((e) => e.key === selected)) selected = all.length ? all[0].key : null;
+  const nav = document.getElementById("navList");
+  const keep = nav.scrollTop; // non far saltare l'elenco quando si aggiorna
+  nav.innerHTML = groups.map((g) => `<div class="nav-group"><div class="nav-group-title">${esc(g.title)} <span class="count">${g.total}</span>${g.note ? ` <span class="nav-note">${esc(g.note)}</span>` : ""}</div>
+    ${g.items.length ? g.items.map(navEntry).join("") : `<div class="nav-empty">Nessun risultato</div>`}</div>`).join("") ||
+    `<div class="nav-empty">Nessuna skill corrisponde a “${esc(query)}”.</div>`;
+  nav.scrollTop = keep;
+  renderDetail();
+}
+
+function navEntry(e) {
+  const on = e.key === selected;
+  const folder = e.row ? e.row.folder : e.extra.folder;
+  const desc = card(folder).summary || T(e.row ? e.row.description : e.extra.description);
+  const badge = e.row && e.row.status !== "identica" ? `<span class="badge ${e.row.status === "diversa" ? "diff" : "missing"}">${STATUS_BADGE[e.row.status]}</span>` : "";
+  return `<button class="nav-item${on ? " on" : ""}" aria-current="${on}" data-select="${esc(e.key)}">
+    ${emo(folder)}<span class="nav-text"><span class="name">${esc(folder)}</span>${badge}<span class="desc">${esc(desc)}</span></span></button>`;
+}
+
+function renderDetail() {
+  const el = document.getElementById("detail");
+  const entry = wideEntries().flatMap((g) => g.items).find((e) => e.key === selected);
+  const keep = el.dataset.sel === selected ? el.scrollTop : 0;
+  el.dataset.sel = selected || "";
+  el.innerHTML = `<div class="detail-inner">${!entry ? `<div class="empty">Scegli una skill a sinistra.</div>` : entry.row ? rowDetail(entry.row) : extraDetail(entry.extra)}</div>`;
+  el.scrollTop = keep;
+}
+
+function detailHead(folder, statusHtml) {
+  const c = card(folder);
+  return `<div class="pane-head"><span class="emoji big" aria-hidden="true">${esc(c.emoji)}</span><div><h3>${esc(folder)}</h3>${statusHtml}</div></div>
+    ${c.summary ? `<p class="pane-summary">${esc(c.summary)}</p>` : ""}`;
+}
+
+function rowDetail(r) {
+  const ok = r.status === "identica";
+  return detailHead(r.folder, ok ? `<span class="check">✓ Uguale in Claude Code e Codex</span>` : `<span class="badge ${r.status === "diversa" ? "diff" : "missing"}">${STATUS_BADGE[r.status]}</span>`) +
+    (ok ? "" : `<div class="action-box"><div class="block-title">Da sistemare</div>${todoActions(r)}</div>`) +
+    `<div class="block"><div class="block-title">Cosa fa</div><p class="pane-desc">${esc(T(r.description))}</p></div>${skillBody(r)}`;
+}
+
+function extraDetail(x) {
+  const plugin = x.kind === "plugin" ? x.origin.replace(/^plugin /, "") : null;
+  const slash = x.side === "claude" ? "/" + (plugin ? plugin + ":" : "") + x.folder : null;
+  const codex = x.side === "codex" ? "$" + x.folder : null;
+  return detailHead(x.folder, `<span class="tag">${dot(x.side)} ${esc(x.origin)} · solo da consultare</span>`) +
+    `<div class="block"><div class="block-title">Cosa fa</div><p class="pane-desc">${esc(T(x.description))}</p></div>
+    ${infoHtml(x.info, { slash, codex })}
+    <div class="block"><div class="block-title">Dove si trova</div><code class="muted">${esc(tilde(x.path))}</code></div>`;
+}
+
+function navItem(r) {
+  const on = r.folder === selected;
+  return `<button class="nav-item${on ? " on" : ""}" role="option" aria-selected="${on}" data-select="${esc(r.folder)}">
+    ${emo(r.folder)}<span class="nav-text"><span class="name">${esc(r.folder)}</span>
+    <span class="desc">${esc(card(r.folder).summary || T(r.description))}</span></span></button>`;
+}
+
+// Cosa fa, come si avvia, dove si trova: usato sia nel pannello a destra sia nell'elenco che si apre
+function skillBody(r) {
+  const ids = ["claude", ...CODEX_IDS].filter((id) => r.per[id]);
+  const where = ids.map((id) => {
+    const p = r.per[id];
+    return `<span>${dot(id)} ${esc(sideName(id, r))}</span><span><code>${esc(tilde(p.path))}</code>${p.target ? `<br>collegamento a <code>${esc(tilde(p.target))}</code>` : ""}</span>`;
+  }).join("");
+  const p = r.per[ids[0]];
+  const notes = [];
+  if (r.claudeOnly.length) notes.push(`Alcune impostazioni valgono solo in Claude Code (<code>${r.claudeOnly.map(esc).join("</code>, <code>")}</code>): in Codex la skill funziona lo stesso, ma le ignora.`);
+  if (ids.some((id) => !r.per[id].hasSkillMd)) notes.push("Manca il file <code>SKILL.md</code>: senza, nessuno dei due programmi la riconosce come skill.");
+  return `${infoHtml(r.info, launchFor(r))}
+    <div class="block"><div class="block-title">Dove si trova</div>
+    <div class="kv">${where}<span class="muted">Contenuto</span><span>${files(p.count)} · ultima modifica ${fmtDate(p.newest)}</span></div></div>
+    ${notes.map((n) => `<div class="hint">${n}</div>`).join("")}`;
+}
+
+function alignedItem(r) {
+  return `<details class="item" data-key="r:${esc(r.folder)}"${openKeys.has("r:" + r.folder) ? " open" : ""}><summary>${CHEV}${emo(r.folder)}<div class="main"><div class="name">${esc(r.folder)} ${launchChip(r.info, "/" + r.folder)}</div>${summaryHtml(r.folder)}<div class="desc">${esc(T(r.description))}</div></div>
+      <span class="check">✓ Uguale</span></summary>
+    <div class="more">${skillBody(r)}</div></details>`;
+}
+
+function select(key, focus) {
+  selected = key;
+  // aggiorna solo l'evidenziazione e il dettaglio: l'elenco non si muove
+  document.querySelectorAll(".nav-item").forEach((b) => {
+    const on = b.dataset.select === key;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-current", String(on));
+  });
+  renderDetail();
+  document.getElementById("detail").scrollTop = 0;
+  const item = document.querySelector(`.nav-item[data-select="${CSS.escape(key)}"]`);
+  if (item) { item.scrollIntoView({ block: "nearest" }); if (focus) item.focus(); }
+}
+
+WIDE.addEventListener("change", () => data && render());
+
+// frecce su e giù per scorrere l'elenco
+document.addEventListener("keydown", (e) => {
+  const item = e.target.closest && e.target.closest(".nav-item");
+  if (!item || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+  e.preventDefault();
+  const items = [...document.querySelectorAll(".nav-item")];
+  const next = items[items.indexOf(item) + (e.key === "ArrowDown" ? 1 : -1)];
+  if (next) select(next.dataset.select, true);
+});
+
+// ---------- cosa fa e come si usa (letto in automatico da SKILL.md) ----------
+
+const launchChip = (info, slash) => info && info.slash ? `<code class="chip-cmd">${esc(slash)}</code>` : "";
+
+function copyable(cmd, note) {
+  return `<div class="cmd"><code>${esc(cmd)}</code><button class="copy" data-copy="${esc(cmd)}" title="Copia il comando">Copia</button>${note ? `<span class="cmd-note">${esc(note)}</span>` : ""}</div>`;
+}
+
+// Separa "comando   # spiegazione" (spiegazione accorciata se è lunga)
+function splitComment(line) {
+  const m = line.match(/^(.*?\S)\s+#\s+(.+)$/);
+  if (!m) return [line, ""];
+  m[2] = T(m[2]);
+  const note = m[2].length > 140 ? m[2].slice(0, 137).replace(/\s+\S*$/, "") + "…" : m[2];
+  return [m[1], note];
+}
+
+function infoHtml(info, { slash, codex }) {
+  if (!info) return `<div class="hint">Non c’è un file <code>SKILL.md</code> da cui leggere cosa fa.</div>`;
+  const out = [];
+
+  if (info.whenToUse.length) {
+    out.push(`<div class="block"><div class="block-title">Quando usarla</div><ul class="bullets">${info.whenToUse.map((w) => `<li>${esc(T(w))}</li>`).join("")}</ul></div>`);
+  }
+
+  const how = [];
+  if (slash) {
+    how.push(`<div class="how"><span class="how-who">${dot("claude")} Claude Code</span><div>` +
+      (info.slash ? copyable(slash + (info.argHint ? " " + info.argHint : "")) : `<span class="muted">Non si avvia a mano con un comando.</span>`) +
+      `<div class="muted small">${info.auto ? "Oppure chiedilo a parole: Claude la usa da solo quando la richiesta corrisponde alla descrizione." : "Claude non la usa da solo: va avviata a mano."}</div></div></div>`);
+  }
+  if (codex) {
+    how.push(`<div class="how"><span class="how-who">${dot("codex")} Codex</span><div>${copyable(codex)}
+      <div class="muted small">Scrivila nel messaggio, oppure chiedilo a parole: Codex la usa da solo quando serve.</div></div></div>`);
+  }
+  if (how.length) out.push(`<div class="block"><div class="block-title">Come si avvia</div>${how.join("")}</div>`);
+
+  if (info.commands.length) {
+    out.push(`<div class="block"><div class="block-title">Comandi che usa</div>
+      <div class="muted small" style="margin-bottom:6px">Comandi da terminale scritti nelle istruzioni della skill: li lancia lei quando serve, ma puoi usarli anche tu.</div>
+      ${info.commands.slice(0, 4).map((c) => copyable(...splitComment(c))).join("")}
+      ${info.commands.length > 4 ? `<details class="more-cmds"><summary>Mostra altri ${info.commands.length - 4}</summary>${info.commands.slice(4).map((c) => copyable(...splitComment(c))).join("")}</details>` : ""}
+      ${info.moreCommands ? `<div class="muted small">…e altri ${info.moreCommands} nel file SKILL.md</div>` : ""}</div>`);
+  }
+
+  if (info.scripts.length) {
+    out.push(`<div class="block"><div class="block-title">Script inclusi</div><div class="chips">${info.scripts.map((s) => `<code class="chip">${esc(s)}</code>`).join("")}</div></div>`);
+  }
+
+  if (info.sections.length) {
+    out.push(`<div class="block"><div class="block-title">Argomenti trattati</div><div class="chips">${info.sections.map((s) => `<span class="chip">${esc(T(s))}</span>`).join("")}${info.moreSections ? `<span class="chip muted">+${info.moreSections}</span>` : ""}</div></div>`);
+  }
+  return out.join("");
+}
+
+async function copyText(text, btn) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); ta.remove();
+  }
+  const old = btn.textContent;
+  btn.textContent = "Copiato";
+  setTimeout(() => (btn.textContent = old), 1400);
+}
+
+function renderExtras() {
+  const el = document.getElementById("extras");
+  const list = data.extras || [];
+  el.hidden = !list.length;
+  if (!list.length) return;
+  el.innerHTML = `<details><summary class="section-head" style="cursor:pointer;list-style:none"><h2>Skill di plugin e progetti <span class="count">${list.length}</span></h2></summary>
+    <p class="extras-intro">Queste skill arrivano da un plugin o vivono dentro un singolo progetto. Le mostro solo per completezza: non le confronto e non le copio.</p>
+    <div class="list">${list.map((x) => {
+      // i plugin si avviano con /plugin:skill, le skill di progetto con /skill
+      const plugin = x.kind === "plugin" ? x.origin.replace(/^plugin /, "") : null;
+      const slash = x.side === "claude" ? "/" + (plugin ? plugin + ":" : "") + x.folder : null;
+      const codex = x.side === "codex" ? "$" + x.folder : null;
+      return `<details class="item" data-key="x:${esc(x.path)}"${openKeys.has("x:" + x.path) ? " open" : ""}><summary>${CHEV}${emo(x.folder)}<div class="main"><div class="name">${esc(x.folder)} ${slash ? launchChip(x.info, slash) : ""}</div>${summaryHtml(x.folder)}<div class="desc">${esc(T(x.description))}</div></div>
+      <span class="tag">${dot(x.side)} ${esc(x.origin)}</span></summary>
+      <div class="more">${infoHtml(x.info, { slash, codex })}
+        <div class="block"><div class="block-title">Dove si trova</div><code class="muted">${esc(tilde(x.path))}</code></div></div></details>`;
+    }).join("")}</div></details>`;
+}
+
+// ---------- azioni ----------
+
+function toast(html, kind) {
+  const t = document.getElementById("toast");
+  t.innerHTML = html;
+  t.className = "toast show" + (kind === "err" ? " err" : "");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (t.className = "toast"), kind === "err" ? 9000 : 6000);
+}
+
+function ask(title, bodyHtml, okLabel) {
+  const dlg = document.getElementById("dialog");
+  document.getElementById("dlgTitle").textContent = title;
+  document.getElementById("dlgBody").innerHTML = bodyHtml;
+  document.getElementById("dlgOk").textContent = okLabel;
+  return new Promise((resolve) => {
+    const done = (v) => { dlg.close(); resolve(v); };
+    document.getElementById("dlgOk").onclick = () => done(true);
+    document.getElementById("dlgCancel").onclick = () => done(false);
+    dlg.oncancel = () => resolve(false);
+    dlg.showModal();
+    document.getElementById("dlgOk").focus();
+  });
+}
+
+async function post(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Skills-Viewer": "1" },
+    body: JSON.stringify(body || {}),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.error || r.statusText);
+  return out;
+}
+
+async function run(fn, success) {
+  if (busy) return;
+  busy = true; render();
+  try {
+    const out = await fn();
+    toast(success(out));
+  } catch (e) {
+    toast(`Non sono riuscito a copiare: ${esc(e.message)}. Non ho cambiato niente; riprova.`, "err");
+  } finally {
+    busy = false;
+    await load();
+  }
+}
+
+async function alignOne(folder, from) {
+  const r = data.rows.find((x) => x.folder === folder);
+  const fromName = sideName(from, r);
+  const toName = from === "claude" ? "Codex" : "Claude Code";
+  if (r.status === "diversa" || r.codexCopiesDiffer) {
+    const ok = await ask(`Usare la versione di ${fromName}?`,
+      `<p>La skill <b>${esc(folder)}</b> in ${esc(toName)} diventa uguale a quella di ${esc(fromName)}.</p>
+       <p>La versione che sostituisco non viene cancellata: la sposto in <code>~/.skills-viewer-backup</code>.</p>`,
+      "Usa questa versione");
+    if (!ok) return;
+  }
+  run(() => post("/api/align", { folder, from }), (out) => out.done.length
+    ? `Fatto: <b>${esc(folder)}</b> ora è uguale in Claude Code e Codex.${out.backupDir ? " La versione sostituita è nel backup." : ""}`
+    : `<b>${esc(folder)}</b> era già allineata.`);
+}
+
+async function copyAll() {
+  const rows = autoCopyable();
+  if (!rows.length) return;
+  const ok = await ask(rows.length === 1 ? "Copiare la skill mancante?" : `Copiare le ${rows.length} skill mancanti?`,
+    `<ul>${rows.map((r) => `<li><b>${esc(r.folder)}</b> → ${r.status === "solo-claude" ? "Codex" : "Claude Code"}</li>`).join("")}</ul>
+     <p>Aggiungo solo quello che manca: non sostituisco niente.</p>`,
+    rows.length === 1 ? "Copia" : `Copia ${rows.length} skill`);
+  if (!ok) return;
+  run(() => post("/api/align-all"), (out) => out.done.length
+    ? `Fatto: ${out.done.length === 1 ? "1 skill copiata" : out.done.length + " skill copiate"}.`
+    : "Non c’era niente da copiare.");
+}
+
+document.addEventListener("click", (e) => {
+  const l = e.target.closest("[data-lang]");
+  if (l) return setLang(l.dataset.lang);
+  const n = e.target.closest("[data-select]");
+  if (n) return select(n.dataset.select, true);
+  const c = e.target.closest("[data-copy]");
+  if (c) { e.preventDefault(); return copyText(c.dataset.copy, c); }
+  const a = e.target.closest("[data-align]");
+  if (a && !busy) return alignOne(a.dataset.align, a.dataset.from);
+  if (e.target.closest("[data-copy-all]") && !busy) return copyAll();
+});
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "search" && !e.target.hasAttribute("data-search")) return;
+  query = e.target.value.trim().toLowerCase();
+  if (WIDE.matches) renderWide(); else renderAligned();
+});
+document.getElementById("reload").addEventListener("click", load);
+
+// ---------- aggiornamento automatico ----------
+// Si ricarica quando cambia qualcosa nelle cartelle delle skill e quando torni sulla finestra.
+let reloadTimer = null;
+function scheduleReload() {
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(() => {
+    // non interrompere una copia in corso o una conferma aperta: riprova tra poco
+    if (busy || document.getElementById("dialog").open) return scheduleReload();
+    load();
+  }, 250);
+}
+window.skillsViewerRefresh = scheduleReload; // usato dall'app quando torna in primo piano
+window.addEventListener("focus", scheduleReload);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleReload(); });
+try { new EventSource("/api/events").onmessage = scheduleReload; } catch {}
+
+// ---------- traduzione automatica delle descrizioni ----------
+
+function setLang(l) {
+  lang = l;
+  try { localStorage.setItem("skillsViewerLang", l); } catch {}
+  if (data) { render(); maybeTranslate(); }
+}
+
+function renderTrStatus(text) {
+  document.getElementById("trStatus").textContent = text || "";
+  document.querySelectorAll("[data-lang]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+}
+
+// Se mancano traduzioni, le chiede a Codex (una volta per apertura della pagina)
+async function maybeTranslate() {
+  renderTrStatus(data.translating ? "Preparo descrizioni ed emoji con Codex…" : "");
+  const attempt = [data.untranslated, data.rows.length, (data.extras || []).length].join("/");
+  if (lang !== "it" || !data.untranslated || attempt === lastTranslateTry) return;
+  lastTranslateTry = attempt;
+  renderTrStatus("Preparo descrizioni ed emoji con Codex…");
+  try {
+    await post("/api/translate");
+    await load();
+  } catch (e) {
+    renderTrStatus();
+    toast(`Non sono riuscito a tradurre: ${esc(e.message)}. Le descrizioni restano in lingua originale.`, "err");
+  }
+}
+// dal menu dell'app: copia le mancanti, oppure dice che non c'è niente da copiare
+document.getElementById("alignAll").addEventListener("click", () => {
+  if (data && autoCopyable().length) copyAll(); else toast("Non manca nessuna skill: niente da copiare.");
+});
+load();
+</script>
+</body>
+</html>

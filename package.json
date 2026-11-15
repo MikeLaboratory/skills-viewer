@@ -1,0 +1,14 @@
+{
+  "name": "skills-viewer",
+  "version": "1.0.0",
+  "description": "Confronta e allinea le skill di Claude Code e Codex",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
